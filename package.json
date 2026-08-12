@@ -1,7 +1,7 @@
 {
-  "name": "squadup",
+  "name": "bonga",
   "version": "1.0.0",
-  "description": "A real-time social gaming web platform for friends, groups and two-person connections.",
+  "description": "BONGA — a real-time social space where friends, groups, and two-person connections play live games together.",
   "main": "server.js",
   "engines": {
     "node": ">=18.0.0"

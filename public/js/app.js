@@ -6,14 +6,14 @@
 
   // ---------------- persisted identity ----------------
   const store = {
-    get token() { return localStorage.getItem("squadup_token"); },
-    set token(v) { localStorage.setItem("squadup_token", v); },
-    get nickname() { return localStorage.getItem("squadup_nickname") || ""; },
-    set nickname(v) { localStorage.setItem("squadup_nickname", v); },
-    get avatar() { return localStorage.getItem("squadup_avatar") || AVATARS[0]; },
-    set avatar(v) { localStorage.setItem("squadup_avatar", v); },
-    get lastRoom() { return localStorage.getItem("squadup_last_room") || ""; },
-    set lastRoom(v) { localStorage.setItem("squadup_last_room", v); }
+    get token() { return localStorage.getItem("bonga_token"); },
+    set token(v) { localStorage.setItem("bonga_token", v); },
+    get nickname() { return localStorage.getItem("bonga_nickname") || ""; },
+    set nickname(v) { localStorage.setItem("bonga_nickname", v); },
+    get avatar() { return localStorage.getItem("bonga_avatar") || AVATARS[0]; },
+    set avatar(v) { localStorage.setItem("bonga_avatar", v); },
+    get lastRoom() { return localStorage.getItem("bonga_last_room") || ""; },
+    set lastRoom(v) { localStorage.setItem("bonga_last_room", v); }
   };
 
   // ---------------- state ----------------
@@ -247,7 +247,7 @@
   function shareRoom() {
     const url = `${window.location.origin}/?room=${S.code}`;
     if (navigator.share) {
-      navigator.share({ title: `Join ${S.room.name} on SquadUp`, text: `Join my room "${S.room.name}" — code ${S.code}`, url }).catch(() => {});
+      navigator.share({ title: `Join ${S.room.name} on BONGA`, text: `Join my room "${S.room.name}" — code ${S.code}`, url }).catch(() => {});
     } else {
       navigator.clipboard.writeText(url).then(() => toast("Invite link copied!"));
     }
@@ -259,7 +259,7 @@
   // ---------------- leaving ----------------
   function leaveRoom() {
     socket.emit("leave-room");
-    localStorage.removeItem("squadup_token");
+    localStorage.removeItem("bonga_token");
     window.history.replaceState({}, "", window.location.origin);
     location.reload();
   }
@@ -651,7 +651,7 @@
   socket.on("toast", ({ text }) => toast(text));
   socket.on("safety:kicked", () => {
     toast("You were removed from the room.");
-    localStorage.removeItem("squadup_token");
+    localStorage.removeItem("bonga_token");
     setTimeout(() => { window.location.href = window.location.origin; }, 1200);
   });
   socket.on("safety:report-received", ({ target, count }) => {

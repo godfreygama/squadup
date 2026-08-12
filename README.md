@@ -1,4 +1,9 @@
-# SquadUp — a place to play with your people
+# BONGA — a place to play with your people
+
+> A note on naming: the product is called **BONGA**. The GitHub repo, Render
+> service, and folder are still named `squadup` for now since renaming
+> infrastructure is a separate, optional step — see "Renaming the repo and
+> live URL" near the end of this file if you want to do that too.
 
 A real-time social gaming MVP: create a private room, invite friends, and play live
 group and two-person games together. Built from the project proposal's Section 29
@@ -72,7 +77,7 @@ for testing with friends — just give it a moment to wake up if it's been idle.
      ```bash
      git init
      git add .
-     git commit -m "SquadUp MVP"
+     git commit -m "BONGA MVP"
      git branch -M main
      git remote add origin https://github.com/YOUR-USERNAME/squadup.git
      git push -u origin main
@@ -208,3 +213,27 @@ node test/integration.js
 This spins up two simulated players and walks through room creation, Squad voting,
 Duo matching, reconnection, and safety reporting/kicking — 20 checks, all passing
 as of this build.
+
+## Renaming the repo and live URL (optional)
+
+The product name is BONGA, but `render.yaml`'s service name was deliberately
+**not** changed from `squadup` in this update. Here's why: Render ties an
+existing deployed service to the name it was created with. If `render.yaml`'s
+`name` field changes and gets synced, Render can interpret that as a *new*
+service definition rather than a rename — leaving you with two services (one
+live, one broken/duplicate) instead of one renamed one. Not worth the risk for
+a cosmetic change.
+
+If you want the live URL to say `bonga` instead of `squadup-4eth`, do it safely
+via the dashboard instead:
+
+1. Render dashboard → your service → **Settings**
+2. Look for the service name field and change it there directly (this renames
+   the existing service rather than creating a new one)
+3. Your `.onrender.com` URL will update to match
+
+Renaming the GitHub repo itself (`godfreygama/squadup` → `godfreygama/bonga`) is
+independent and safe to do anytime via repo Settings → repository name — GitHub
+automatically redirects the old URL, and Render's connection to it keeps working.
+Neither of these is required for the brand to be correct where it matters: what
+users actually see on the page.
