@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>SquadUp — Play with your people</title>
+<meta name="description" content="Create a room, invite your people, and play live social games together." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎲</text></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+<div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+<div id="reaction-layer" class="reaction-layer"></div>
+
+<!-- ================= LANDING ================= -->
+<section id="view-landing" class="view view-landing active">
+  <div class="landing-glow"></div>
+  <div class="landing-wrap">
+    <div class="brand">
+      <span class="brand-mark">🎲</span>
+      <span class="brand-name">SquadUp</span>
+    </div>
+
+    <h1 class="hero-title">A place to play<br/><span class="grad-text">with your people.</span></h1>
+    <p class="hero-sub">Create a private room. Send the link. Ask each other things a search engine could never answer.</p>
+
+    <div class="landing-actions">
+      <button id="btn-create" class="btn btn-primary btn-lg">
+        <span>Create a room</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 5l7 7-7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button id="btn-show-join" class="btn btn-ghost btn-lg">Join a room</button>
+    </div>
+
+    <form id="join-form" class="join-form hidden">
+      <input id="join-code" class="input input-code" placeholder="ROOM CODE" maxlength="6" autocomplete="off" autocapitalize="characters" />
+      <button type="submit" class="btn btn-primary">Join</button>
+    </form>
+
+    <div class="landing-modes">
+      <div class="mode-chip">
+        <span class="mode-chip-emoji">👯</span>
+        <div><b>Squad</b><small>Group games for friends</small></div>
+      </div>
+      <div class="mode-chip">
+        <span class="mode-chip-emoji">🎯</span>
+        <div><b>Duo</b><small>Two-person, no labels</small></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= NICKNAME MODAL ================= -->
+<div id="modal-nickname" class="modal-backdrop hidden">
+  <div class="modal">
+    <h2 id="nickname-title">What should we call you?</h2>
+    <input id="nickname-input" class="input" placeholder="Your nickname" maxlength="20" autocomplete="off" />
+    <div class="avatar-picker" id="avatar-picker"></div>
+    <button id="nickname-continue" class="btn btn-primary btn-block">Continue</button>
+    <button id="nickname-cancel" class="btn btn-text">Cancel</button>
+  </div>
+</div>
+
+<!-- ================= LOBBY ================= -->
+<section id="view-lobby" class="view view-lobby">
+  <header class="topbar">
+    <div class="room-code-badge" id="room-code-badge" title="Tap to copy">
+      <span id="room-code-text">•••••</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 9V5a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2h-4M9 9H5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>
+    <button id="btn-share" class="btn btn-secondary btn-sm">Share link</button>
+    <button id="btn-leave" class="btn btn-icon btn-sm" title="Leave room">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </header>
+
+  <div class="lobby-wrap">
+    <div class="room-name-row">
+      <h1 id="room-name" class="room-name" contenteditable="false">Room</h1>
+      <button id="btn-edit-name" class="btn-tiny hidden">✏️</button>
+    </div>
+    <p class="lobby-sub"><span id="player-count">0</span> people online</p>
+
+    <div id="player-grid" class="player-grid"></div>
+
+    <h2 class="section-label">Choose an experience</h2>
+    <div class="mode-cards">
+      <button class="mode-card mode-card-squad" data-mode="squad">
+        <span class="mode-card-emoji">👯</span>
+        <span class="mode-card-title">Squad</span>
+        <span class="mode-card-desc">Vote, guess and find out what your group really thinks.</span>
+      </button>
+      <button class="mode-card mode-card-duo" data-mode="duo">
+        <span class="mode-card-emoji">🎯</span>
+        <span class="mode-card-title">Duo</span>
+        <span class="mode-card-desc">A two-person space. No labels — just the two of you.</span>
+        <span id="duo-hint" class="mode-card-hint">Needs exactly 2 players</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SQUAD GAME ================= -->
+<section id="view-squad" class="view view-game">
+  <header class="game-topbar">
+    <div class="game-topbar-left">
+      <span class="game-tag">Squad · Who Knows Who?</span>
+      <span id="squad-typing" class="typing-indicator"></span>
+    </div>
+    <div class="game-topbar-right">
+      <button id="squad-host-controls-btn" class="btn btn-icon btn-sm hidden" title="Host controls">⚙️</button>
+      <button id="btn-leave-squad" class="btn btn-icon btn-sm" title="Leave">✕</button>
+    </div>
+  </header>
+
+  <div class="game-wrap">
+    <div id="squad-idle" class="idle-panel">
+      <p class="idle-hint">Waiting for the next question…</p>
+      <button id="btn-squad-ask" class="btn btn-primary btn-lg">Ask a question</button>
+    </div>
+
+    <div id="squad-question-panel" class="question-panel hidden">
+      <div class="timer-bar"><div id="squad-timer-fill" class="timer-fill"></div></div>
+      <p class="asked-by">Asked by <span id="squad-asked-by">—</span></p>
+      <h2 id="squad-question-text" class="question-text">—</h2>
+      <p id="squad-progress" class="progress-text">0 of 0 answered</p>
+      <div id="squad-vote-grid" class="vote-grid"></div>
+    </div>
+
+    <div id="squad-results-panel" class="results-panel hidden">
+      <h2 id="squad-results-text" class="question-text small"></h2>
+      <div id="squad-results-bars" class="results-bars"></div>
+      <button id="btn-squad-next" class="btn btn-primary btn-lg">Ask another</button>
+    </div>
+  </div>
+
+  <aside class="side-leaderboard" id="squad-leaderboard"></aside>
+  <div class="reaction-bar" id="squad-reactions"></div>
+</section>
+
+<!-- ================= DUO GAME ================= -->
+<section id="view-duo" class="view view-game">
+  <header class="game-topbar">
+    <div class="game-topbar-left">
+      <span class="game-tag">Duo</span>
+      <span id="duo-typing" class="typing-indicator"></span>
+    </div>
+    <div class="game-topbar-right">
+      <button id="squad-host-controls-btn-duo" class="btn btn-icon btn-sm hidden" title="Host controls">⚙️</button>
+      <button id="btn-leave-duo" class="btn btn-icon btn-sm" title="Leave">✕</button>
+    </div>
+  </header>
+
+  <div class="game-wrap">
+    <div id="duo-idle" class="idle-panel">
+      <p class="idle-hint">Just the two of you. Ask something.</p>
+      <div class="duo-idle-actions">
+        <button id="btn-duo-ask-match" class="btn btn-primary">This or That</button>
+        <button id="btn-duo-ask-open" class="btn btn-secondary">Open Question</button>
+      </div>
+    </div>
+
+    <div id="duo-question-panel" class="question-panel hidden">
+      <div class="timer-bar"><div id="duo-timer-fill" class="timer-fill"></div></div>
+      <p class="asked-by">Asked by <span id="duo-asked-by">—</span></p>
+
+      <div id="duo-match-ui" class="duo-match-ui hidden">
+        <div class="duo-match-options">
+          <button class="duo-option" id="duo-option-a" data-choice="a"></button>
+          <span class="duo-vs">or</span>
+          <button class="duo-option" id="duo-option-b" data-choice="b"></button>
+        </div>
+      </div>
+
+      <div id="duo-open-ui" class="duo-open-ui hidden">
+        <h2 id="duo-open-text" class="question-text"></h2>
+        <textarea id="duo-open-input" class="textarea" maxlength="300" placeholder="Type your answer…"></textarea>
+        <button id="btn-duo-submit-open" class="btn btn-primary">Submit answer</button>
+      </div>
+
+      <p id="duo-progress" class="progress-text">Waiting on both of you…</p>
+    </div>
+
+    <div id="duo-results-panel" class="results-panel hidden">
+      <div id="duo-match-badge" class="duo-match-badge hidden"></div>
+      <h2 id="duo-results-text" class="question-text small"></h2>
+      <div id="duo-answers" class="duo-answers"></div>
+      <button id="btn-duo-next" class="btn btn-primary btn-lg">Ask another</button>
+    </div>
+  </div>
+
+  <div class="reaction-bar" id="duo-reactions"></div>
+</section>
+
+<!-- ================= ASK QUESTION MODAL (SQUAD) ================= -->
+<div id="modal-ask-squad" class="modal-backdrop hidden">
+  <div class="modal modal-wide">
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-tab="suggested">Suggested</button>
+      <button class="modal-tab" data-tab="custom">Your own</button>
+    </div>
+    <div id="squad-suggested-tab" class="modal-tab-panel">
+      <div id="squad-category-chips" class="category-chips"></div>
+      <p class="preview-label">Preview</p>
+      <p id="squad-preview-text" class="preview-text">Pick a category to preview a question.</p>
+      <button id="btn-squad-shuffle" class="btn btn-ghost btn-sm">🔀 Shuffle</button>
+    </div>
+    <div id="squad-custom-tab" class="modal-tab-panel hidden">
+      <textarea id="squad-custom-input" class="textarea" maxlength="200" placeholder="Who in this group would…?"></textarea>
+      <p class="hint-text">Everyone will vote for a person in the room.</p>
+    </div>
+    <div class="modal-actions">
+      <button id="btn-squad-cancel" class="btn btn-text">Cancel</button>
+      <button id="btn-squad-send" class="btn btn-primary">Ask the room</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ASK QUESTION MODAL (DUO MATCH) ================= -->
+<div id="modal-ask-duo-match" class="modal-backdrop hidden">
+  <div class="modal modal-wide">
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-tab="suggested">Suggested</button>
+      <button class="modal-tab" data-tab="custom">Your own</button>
+    </div>
+    <div id="duo-match-suggested-tab" class="modal-tab-panel">
+      <div id="duo-category-chips" class="category-chips"></div>
+      <p class="preview-label">Preview</p>
+      <p id="duo-preview-text" class="preview-text">Pick a category to preview.</p>
+      <button id="btn-duo-shuffle" class="btn btn-ghost btn-sm">🔀 Shuffle</button>
+    </div>
+    <div id="duo-match-custom-tab" class="modal-tab-panel hidden">
+      <input id="duo-custom-a" class="input" maxlength="60" placeholder="Option A" />
+      <div class="or-divider">or</div>
+      <input id="duo-custom-b" class="input" maxlength="60" placeholder="Option B" />
+    </div>
+    <div class="modal-actions">
+      <button id="btn-duo-match-cancel" class="btn btn-text">Cancel</button>
+      <button id="btn-duo-match-send" class="btn btn-primary">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ASK QUESTION MODAL (DUO OPEN) ================= -->
+<div id="modal-ask-duo-open" class="modal-backdrop hidden">
+  <div class="modal modal-wide">
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-tab="suggested">Suggested</button>
+      <button class="modal-tab" data-tab="custom">Your own</button>
+    </div>
+    <div id="duo-open-suggested-tab" class="modal-tab-panel">
+      <div class="category-chips">
+        <button class="chip" data-kind="how-well">How Well Do You Know Me?</button>
+        <button class="chip" data-kind="first-impression">First Impression</button>
+        <button class="chip" data-kind="memory">Memory Test</button>
+        <button class="chip" data-kind="crush">Crush</button>
+      </div>
+      <p class="preview-label">Preview</p>
+      <p id="duo-open-preview-text" class="preview-text">Pick a category to preview.</p>
+    </div>
+    <div id="duo-open-custom-tab" class="modal-tab-panel hidden">
+      <textarea id="duo-open-custom-input" class="textarea" maxlength="200" placeholder="Ask anything…"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button id="btn-duo-open-cancel" class="btn btn-text">Cancel</button>
+      <button id="btn-duo-open-send" class="btn btn-primary">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= HOST CONTROLS DRAWER ================= -->
+<div id="drawer-host" class="modal-backdrop hidden">
+  <div class="modal">
+    <h2>Host controls</h2>
+    <button id="btn-host-skip" class="btn btn-secondary btn-block">Skip this question</button>
+    <button id="btn-host-end" class="btn btn-secondary btn-block">End session</button>
+    <p class="host-players-label">Players</p>
+    <div id="host-players-list" class="host-players-list"></div>
+    <button id="btn-host-close" class="btn btn-text">Close</button>
+  </div>
+</div>
+
+<!-- ================= REPORT MODAL ================= -->
+<div id="modal-report" class="modal-backdrop hidden">
+  <div class="modal">
+    <h2>Report <span id="report-target-name"></span></h2>
+    <textarea id="report-reason" class="textarea" maxlength="200" placeholder="What happened? (optional)"></textarea>
+    <button id="btn-report-send" class="btn btn-primary btn-block">Send report</button>
+    <button id="btn-report-cancel" class="btn btn-text">Cancel</button>
+  </div>
+</div>
+
+<!-- ================= RECAP ================= -->
+<section id="view-recap" class="view view-recap">
+  <div class="recap-wrap">
+    <p class="recap-eyebrow">That was</p>
+    <h1 id="recap-room-name" class="recap-title">tonight.</h1>
+
+    <div class="recap-cards" id="recap-highlights"></div>
+
+    <h2 class="section-label">Final leaderboard</h2>
+    <div id="recap-leaderboard" class="recap-leaderboard"></div>
+
+    <div class="recap-actions">
+      <button id="btn-recap-replay" class="btn btn-primary btn-lg">Play again</button>
+      <button id="btn-recap-home" class="btn btn-ghost btn-lg">Leave room</button>
+    </div>
+  </div>
+</section>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
