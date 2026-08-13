@@ -14,18 +14,27 @@ group and two-person games together. Built from the project proposal's Section 2
 - **Landing → create/join room** with a shareable 5-character code and link
 - **Live lobby** with real-time presence (join/leave, host badge, online dots)
 - **Squad → "Who Knows Who?"** — vote for a person in the room, live results,
-  points, suggested question categories (funny / savage / deep / random /
+  Stars ⭐, suggested question categories (funny / savage / deep / random /
   hypothetical / friendship) + fully custom questions
 - **Duo** (only unlocks with exactly 2 people in the room, and deliberately never
   labels your relationship) — **This or That / Match** with a live match score,
   and **Open Questions** (How Well Do You Know Me?, First Impression, Memory Test,
-  Crush) with custom-question support
-- **Reactions**, a typing indicator, and a 30–45s countdown per question
+  Crush) with custom-question support. No countdown pressure on ordinary
+  questions — reveals happen once both people have answered.
+- **Adaptive Squad progression** — once most of the room has voted, a short
+  grace window plays out instead of making everyone wait for the slowest person
+  or the full 30-second timer
+- **Reconnection that actually resumes where you left off** — refreshing the
+  page or a dropped mobile connection won't kick you out, and if you were
+  mid-question when you dropped, you get that live question back (plus your
+  answer, if you'd already submitted one) instead of landing on a stale screen
+- **Reactions**, a typing indicator, and a persistent "reconnecting…" banner
+  instead of a silent failure
 - **Basic safety**: leave room, report player (notifies host), host can remove a
   player or skip a question
-- **Session recap**: leaderboard, most-voted highlight, duo match score, replay
-- **Reconnection handling**: refreshing the page or a dropped mobile connection
-  won't kick you out — you rejoin with your score intact for 2 minutes
+- **Session recap**: leaderboard, winner, most-voted highlight, most-active
+  asker, duo match score, **Rematch** (same mode, jump straight back in) vs
+  **Change game** (back to the lobby) as distinct actions
 
 ## What's intentionally NOT in this build
 
@@ -33,6 +42,13 @@ Battle mode, Ask the Room as a separate mode, room history across sessions,
 achievements, themes, accounts, and monetization are all Phase 2/3 in the original
 proposal — building all of it wasn't realistic for a first pass. This version is
 scoped to prove whether people actually want to play.
+
+**The bigger one**: Truth or Dare, Hot Seat, Never Have I Ever, the Judge
+mechanism, and per-activity verification types (system / target-player /
+creator / group-vote) all require replacing Squad and Duo's current
+special-cased logic with a generic "activity engine." That's a real
+architecture change, not a UI addition — it needs its own design pass before
+any code gets written, so it hasn't been started yet.
 
 **Room data is in-memory only.** Rooms disappear when the server restarts
 (including the free-tier "spin down after inactivity" behavior described below).

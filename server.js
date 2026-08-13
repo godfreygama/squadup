@@ -31,15 +31,17 @@ const genCode = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 5);
 //   code, name, hostToken, createdAt,
 //   players: Map<token, {token, nickname, avatar, color, score, connected, socketId, isHost, joinedAt, votesWon}>,
 //   mode: null|'squad'|'duo', phase: 'lobby'|'squad'|'duo'|'recap',
-//   squad: { status:'idle'|'asking'|'revealed', question, timer },
-//   duo: { status, question, timer },
-//   history: [ {type, text, result, ts} ],
+//   squad: { status:'idle'|'asking'|'revealed', question, timer, graceTimer, round },
+//   duo: { status, question, timer, round },
+//   history: [ {type, text, top/matched, askedBy, ts} ],
 //   reports: [ {from, target, reason, ts} ]
 // }
 const rooms = new Map();
 const REMOVAL_GRACE_MS = 2 * 60 * 1000; // 2 minutes to reconnect before a player is dropped
-const SQUAD_TIMER_MS = 30 * 1000;
-const DUO_TIMER_MS = 45 * 1000;
+const SQUAD_TIMER_MS = 30 * 1000;       // hard backstop — reveals no matter what after this
+const SQUAD_GRACE_MS = 6 * 1000;        // once enough players have answered, wait this long for stragglers then reveal
+const SQUAD_THRESHOLD_RATIO = 0.7;      // "enough players" = 70% of the room (min 2)
+const DUO_BACKSTOP_MS = 10 * 60 * 1000; // Duo has no visible timer — this just prevents a truly abandoned question from hanging forever
 
 const AVATAR_COLORS = ["#7C5CFF", "#FF5CA8", "#3DDC97", "#FFB020", "#4DA3FF", "#FF6B5C", "#C77CFF", "#5CE1E6"];
 
@@ -87,6 +89,13 @@ function clearTimer(t) {
   if (t) clearTimeout(t);
 }
 
+function clearSquadTimers(room) {
+  clearTimer(room.squad.timer);
+  clearTimer(room.squad.graceTimer);
+  room.squad.timer = null;
+  room.squad.graceTimer = null;
+}
+
 io.on("connection", socket => {
   let currentRoomCode = null;
   let currentToken = null;
@@ -105,8 +114,8 @@ io.on("connection", socket => {
         players: new Map(),
         mode: null,
         phase: "lobby",
-        squad: { status: "idle", question: null, timer: null },
-        duo: { status: "idle", question: null, timer: null },
+        squad: { status: "idle", question: null, timer: null, graceTimer: null, round: 0 },
+        duo: { status: "idle", question: null, timer: null, round: 0 },
         history: [],
         reports: []
       };
@@ -155,6 +164,32 @@ io.on("connection", socket => {
       currentToken = token;
       broadcastLobby(room);
       analytics.track("player_reconnected", code, {});
+
+      // If they dropped mid-question, hand them the live question (and their
+      // prior answer, if they'd already submitted one) instead of leaving them
+      // stuck on a stale idle screen until the next question comes along.
+      if (room.mode === "squad" && room.squad.status === "asking" && room.squad.question) {
+        const q = room.squad.question;
+        io.to(socket.id).emit("squad:question", {
+          id: q.id, text: q.text, askedBy: q.askedBy, timed: true,
+          durationMs: SQUAD_TIMER_MS, players: publicRoom(room).players
+        });
+        if (q.votes.has(token)) {
+          io.to(socket.id).emit("squad:restore-vote", { targetToken: q.votes.get(token) });
+        }
+      } else if (room.mode === "duo" && room.duo.status === "asking" && room.duo.question) {
+        const q = room.duo.question;
+        io.to(socket.id).emit("duo:question", {
+          id: q.id, kind: q.kind, text: q.text, a: q.a, b: q.b, askedBy: q.askedBy, timed: false
+        });
+        if (q.answers.has(token)) {
+          io.to(socket.id).emit("duo:restore-answer", {
+            choice: q.kind === "match" ? q.answers.get(token) : undefined,
+            text: q.kind === "open" ? q.answers.get(token) : undefined
+          });
+        }
+      }
+
       return ack && ack({ ok: true, code, token, room: publicRoom(room), rejoined: true, mode: room.mode, phase: room.phase });
     }
 
@@ -222,12 +257,12 @@ io.on("connection", socket => {
     if (!room) return;
     const player = room.players.get(currentToken);
     if (!player || !player.isHost) return;
-    clearTimer(room.squad.timer);
+    clearSquadTimers(room);
     clearTimer(room.duo.timer);
     room.mode = null;
     room.phase = "lobby";
-    room.squad = { status: "idle", question: null, timer: null };
-    room.duo = { status: "idle", question: null, timer: null };
+    room.squad = { status: "idle", question: null, timer: null, graceTimer: null, round: 0 };
+    room.duo = { status: "idle", question: null, timer: null, round: 0 };
     broadcastLobby(room);
   });
 
@@ -267,6 +302,7 @@ io.on("connection", socket => {
       id: question.id,
       text: question.text,
       askedBy: question.askedBy,
+      timed: true,
       durationMs: SQUAD_TIMER_MS,
       players: publicRoom(room).players
     });
@@ -281,10 +317,25 @@ io.on("connection", socket => {
     if (!room.players.has(targetToken)) return;
     q.votes.set(currentToken, targetToken);
 
-    io.to(room.code).emit("squad:progress", { answered: q.votes.size, total: room.players.size });
-    if (q.votes.size >= room.players.size) {
-      clearTimer(room.squad.timer);
+    const total = room.players.size;
+    io.to(room.code).emit("squad:progress", { answered: q.votes.size, total, answeredTokens: [...q.votes.keys()] });
+
+    if (q.votes.size >= total) {
+      // Everyone's in — no reason to make the room wait.
+      clearSquadTimers(room);
       revealSquad(room);
+    } else {
+      // Adaptive progression: once enough of the room has answered, give stragglers
+      // one short grace window instead of holding everyone to the full timer.
+      const threshold = Math.max(2, Math.ceil(total * SQUAD_THRESHOLD_RATIO));
+      if (q.votes.size >= threshold && !room.squad.graceTimer) {
+        clearTimer(room.squad.timer);
+        room.squad.timer = null;
+        room.squad.graceTimer = setTimeout(() => {
+          room.squad.graceTimer = null;
+          revealSquad(room);
+        }, SQUAD_GRACE_MS);
+      }
     }
   });
 
@@ -324,7 +375,10 @@ io.on("connection", socket => {
     room.duo.question = question;
     room.duo.status = "asking";
     clearTimer(room.duo.timer);
-    room.duo.timer = setTimeout(() => revealDuo(room), DUO_TIMER_MS);
+    // Ordinary Duo activities have no visible timer — a countdown adds pressure that
+    // doesn't fit "get to know someone." DUO_BACKSTOP_MS is a silent cleanup net only,
+    // in case a question is truly abandoned; it's never shown to players.
+    room.duo.timer = setTimeout(() => revealDuo(room), DUO_BACKSTOP_MS);
 
     io.to(room.code).emit("duo:question", {
       id: question.id,
@@ -333,7 +387,7 @@ io.on("connection", socket => {
       a: question.a,
       b: question.b,
       askedBy: question.askedBy,
-      durationMs: DUO_TIMER_MS
+      timed: false
     });
     analytics.track("duo_question_asked", room.code, { kind, source, category: category || null });
   });
@@ -345,7 +399,7 @@ io.on("connection", socket => {
     if (!q || q.id !== questionId) return;
     q.answers.set(currentToken, q.kind === "match" ? choice : (text || "").trim().slice(0, 300));
 
-    io.to(room.code).emit("duo:progress", { answered: q.answers.size, total: 2 });
+    io.to(room.code).emit("duo:progress", { answered: q.answers.size, total: 2, answeredTokens: [...q.answers.keys()] });
     if (q.answers.size >= 2) {
       clearTimer(room.duo.timer);
       revealDuo(room);
@@ -358,7 +412,7 @@ io.on("connection", socket => {
     if (!room) return;
     const player = room.players.get(currentToken);
     if (!player || !player.isHost) return;
-    clearTimer(room.squad.timer);
+    clearSquadTimers(room);
     clearTimer(room.duo.timer);
     room.phase = "recap";
     const recap = buildRecap(room);
@@ -375,12 +429,31 @@ io.on("connection", socket => {
     if (!room) return;
     const player = room.players.get(currentToken);
     if (!player || !player.isHost) return;
+    clearSquadTimers(room);
+    clearTimer(room.duo.timer);
     room.mode = null;
     room.phase = "lobby";
-    room.squad = { status: "idle", question: null, timer: null };
-    room.duo = { status: "idle", question: null, timer: null };
+    room.squad = { status: "idle", question: null, timer: null, graceTimer: null, round: 0 };
+    room.duo = { status: "idle", question: null, timer: null, round: 0 };
     broadcastLobby(room);
     analytics.track("session_replayed", room.code, {});
+  });
+
+  // Rematch: same mode, jump straight back into it — unlike session:replay,
+  // this skips the full lobby / mode-select screen.
+  socket.on("session:rematch", () => {
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+    const player = room.players.get(currentToken);
+    if (!player || !player.isHost) return;
+    if (!room.mode) return;
+    clearSquadTimers(room);
+    clearTimer(room.duo.timer);
+    room.phase = room.mode;
+    room.squad = { status: "idle", question: null, timer: null, graceTimer: null, round: 0 };
+    room.duo = { status: "idle", question: null, timer: null, round: 0 };
+    broadcastLobby(room);
+    analytics.track("session_rematch", room.code, { mode: room.mode });
   });
 
   // ---------- REACTIONS ----------
@@ -443,7 +516,7 @@ io.on("connection", socket => {
     const host = room.players.get(currentToken);
     if (!host || !host.isHost) return;
     if (room.mode === "squad" && room.squad.status === "asking") {
-      clearTimer(room.squad.timer);
+      clearSquadTimers(room);
       room.squad.status = "idle";
       room.squad.question = null;
       io.to(room.code).emit("squad:skipped");
@@ -506,6 +579,7 @@ function handleLeave(socket, code, token, explicit) {
 function revealSquad(room) {
   const q = room.squad.question;
   if (!q) return;
+  clearSquadTimers(room); // safety: whichever path got us here, make sure nothing else is still pending
   const tally = new Map();
   for (const targetToken of q.votes.values()) {
     tally.set(targetToken, (tally.get(targetToken) || 0) + 1);
@@ -531,7 +605,7 @@ function revealSquad(room) {
   }
 
   room.squad.status = "revealed";
-  room.history.push({ type: "squad", text: q.text, top: results[0] ? results[0].nickname : null, ts: Date.now() });
+  room.history.push({ type: "squad", text: q.text, top: results[0] ? results[0].nickname : null, askedBy: q.askedBy, ts: Date.now() });
 
   io.to(room.code).emit("squad:results", {
     questionId: q.id,
@@ -572,6 +646,7 @@ function revealDuo(room) {
     kind: q.kind,
     text: q.kind === "match" ? `${q.a} or ${q.b}` : q.text,
     matched,
+    askedBy: q.askedBy,
     ts: Date.now()
   });
 
@@ -606,9 +681,22 @@ function buildRecap(room) {
   const matchCount = duoHistory.filter(h => h.kind === "match" && h.matched).length;
   const matchTotal = duoHistory.filter(h => h.kind === "match").length;
 
+  const mostActive = (() => {
+    const counts = {};
+    room.history.forEach(h => { if (h.askedBy) counts[h.askedBy] = (counts[h.askedBy] || 0) + 1; });
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    return entries.length ? { nickname: entries[0][0], count: entries[0][1] } : null;
+  })();
+
+  const winner = players.length && players[0].score > 0
+    ? { nickname: players[0].nickname, score: players[0].score }
+    : null;
+
   return {
     leaderboard: players.map(p => ({ nickname: p.nickname, avatar: p.avatar, color: p.color, score: p.score })),
+    winner,
     mostVoted,
+    mostActive,
     duoMatch: matchTotal ? { matched: matchCount, total: matchTotal } : null,
     questionsAnswered: room.history.length,
     roomName: room.name
