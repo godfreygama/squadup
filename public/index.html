@@ -18,6 +18,11 @@
 
 <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 <div id="reaction-layer" class="reaction-layer"></div>
+<div id="reconnect-banner" class="reconnect-banner hidden" role="status" aria-live="assertive">
+  <span id="reconnect-banner-title">Connection interrupted</span>
+  <span id="reconnect-banner-sub" class="reconnect-banner-sub">Trying to reconnect…</span>
+  <button id="btn-reconnect-retry" class="btn btn-primary btn-sm hidden">Try again</button>
+</div>
 
 <!-- ================= LANDING ================= -->
 <section id="view-landing" class="view view-landing active">
@@ -80,7 +85,7 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 9V5a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2h-4M9 9H5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </div>
     <button id="btn-share" class="btn btn-secondary btn-sm">Share link</button>
-    <button id="btn-leave" class="btn btn-icon btn-sm" title="Leave room">
+    <button id="btn-leave" class="btn btn-icon btn-sm btn-danger" title="Leave room">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
   </header>
@@ -119,28 +124,59 @@
       <span id="squad-typing" class="typing-indicator"></span>
     </div>
     <div class="game-topbar-right">
+      <span id="squad-stars" class="stars-readout">⭐ 0</span>
       <button id="squad-host-controls-btn" class="btn btn-icon btn-sm hidden" title="Host controls">⚙️</button>
-      <button id="btn-leave-squad" class="btn btn-icon btn-sm" title="Leave">✕</button>
+      <button id="btn-leave-squad" class="btn btn-icon btn-sm btn-danger" title="Leave">✕</button>
     </div>
   </header>
 
   <div class="game-wrap">
-    <div id="squad-idle" class="idle-panel">
-      <p class="idle-hint">Waiting for the next question…</p>
-      <button id="btn-squad-ask" class="btn btn-primary btn-lg">Ask a question</button>
+    <div id="squad-idle" class="idle-panel idle-panel-activities">
+      <p class="idle-hint">Choose an activity</p>
+      <div id="squad-activity-grid" class="activity-grid"></div>
     </div>
 
     <div id="squad-question-panel" class="question-panel hidden">
-      <div class="timer-bar"><div id="squad-timer-fill" class="timer-fill"></div></div>
+      <div class="timer-bar" id="squad-timer-bar"><div id="squad-timer-fill" class="timer-fill"></div></div>
       <p class="asked-by">Asked by <span id="squad-asked-by">—</span></p>
       <h2 id="squad-question-text" class="question-text">—</h2>
       <p id="squad-progress" class="progress-text">0 of 0 answered</p>
+
+      <!-- vote-person: existing vote-grid, unchanged -->
       <div id="squad-vote-grid" class="vote-grid"></div>
+
+      <!-- poll + fixed options (Never Have I Ever, Would You Rather) -->
+      <div id="squad-poll-fixed-ui" class="duo-match-ui hidden">
+        <div class="duo-match-options" id="squad-poll-fixed-options"></div>
+      </div>
+
+      <!-- freeAnswer (Truth, Hot Seat): target answers, everyone else watches -->
+      <div id="squad-freeanswer-ui" class="hidden">
+        <div id="squad-freeanswer-target-form" class="hidden">
+          <textarea id="squad-freeanswer-input" class="textarea" maxlength="300" placeholder="Type your answer…"></textarea>
+          <button id="btn-squad-freeanswer-submit" class="btn btn-primary">Submit answer</button>
+        </div>
+        <p id="squad-freeanswer-waiting" class="idle-hint hidden">Waiting for <span id="squad-freeanswer-target-name" class="spotlight-name"></span> to answer…</p>
+      </div>
+
+      <!-- challenge (Dare): performer attempts, judge verifies -->
+      <div id="squad-challenge-ui" class="hidden">
+        <p id="squad-challenge-role-text" class="idle-hint"></p>
+        <button id="btn-squad-challenge-attempt" class="btn btn-primary btn-lg hidden">I did it! ✅</button>
+        <div id="squad-challenge-verify" class="duo-idle-actions hidden">
+          <button id="btn-challenge-pass" class="btn btn-primary">Passed ✅</button>
+          <button id="btn-challenge-fail" class="btn btn-secondary">Failed ❌</button>
+        </div>
+      </div>
     </div>
 
     <div id="squad-results-panel" class="results-panel hidden">
       <h2 id="squad-results-text" class="question-text small"></h2>
       <div id="squad-results-bars" class="results-bars"></div>
+      <div id="squad-results-freeanswer" class="duo-answers hidden"></div>
+      <div id="squad-results-challenge" class="hidden">
+        <div id="squad-challenge-verdict-badge" class="duo-match-badge"></div>
+      </div>
       <button id="btn-squad-next" class="btn btn-primary btn-lg">Ask another</button>
     </div>
   </div>
@@ -157,8 +193,9 @@
       <span id="duo-typing" class="typing-indicator"></span>
     </div>
     <div class="game-topbar-right">
+      <span id="duo-stars" class="stars-readout">⭐ 0</span>
       <button id="squad-host-controls-btn-duo" class="btn btn-icon btn-sm hidden" title="Host controls">⚙️</button>
-      <button id="btn-leave-duo" class="btn btn-icon btn-sm" title="Leave">✕</button>
+      <button id="btn-leave-duo" class="btn btn-icon btn-sm btn-danger" title="Leave">✕</button>
     </div>
   </header>
 
@@ -172,7 +209,7 @@
     </div>
 
     <div id="duo-question-panel" class="question-panel hidden">
-      <div class="timer-bar"><div id="duo-timer-fill" class="timer-fill"></div></div>
+      <div class="timer-bar" id="duo-timer-bar"><div id="duo-timer-fill" class="timer-fill"></div></div>
       <p class="asked-by">Asked by <span id="duo-asked-by">—</span></p>
 
       <div id="duo-match-ui" class="duo-match-ui hidden">
@@ -190,6 +227,7 @@
       </div>
 
       <p id="duo-progress" class="progress-text">Waiting on both of you…</p>
+      <div id="duo-answer-status" class="answer-status-list"></div>
     </div>
 
     <div id="duo-results-panel" class="results-panel hidden">
@@ -223,6 +261,58 @@
     <div class="modal-actions">
       <button id="btn-squad-cancel" class="btn btn-text">Cancel</button>
       <button id="btn-squad-send" class="btn btn-primary">Ask the room</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ASK MODAL — SIMPLE (Truth, Hot Seat, Dare, Never Have I Ever) =========
+     These four all share one shape: a single suggested prompt (flat pool, no
+     categories) with a shuffle, or custom text. Truth/Hot Seat/Dare go to one
+     rotating target; Never Have I Ever goes to everyone. -->
+<div id="modal-ask-simple" class="modal-backdrop hidden">
+  <div class="modal modal-wide">
+    <h2 id="simple-activity-title">Truth</h2>
+    <p id="simple-activity-subtitle" class="hint-text" style="margin-bottom:16px;"></p>
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-tab="suggested">Suggested</button>
+      <button class="modal-tab" data-tab="custom">Your own</button>
+    </div>
+    <div id="simple-suggested-tab" class="modal-tab-panel">
+      <p class="preview-label">Preview</p>
+      <p id="simple-preview-text" class="preview-text">Tap shuffle for a prompt.</p>
+      <button id="btn-simple-shuffle" class="btn btn-ghost btn-sm">🔀 Shuffle</button>
+    </div>
+    <div id="simple-custom-tab" class="modal-tab-panel hidden">
+      <textarea id="simple-custom-input" class="textarea" maxlength="200" placeholder="Type your own prompt…"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button id="btn-simple-cancel" class="btn btn-text">Cancel</button>
+      <button id="btn-simple-send" class="btn btn-primary">Ask the room</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ASK MODAL — WOULD YOU RATHER ================= -->
+<div id="modal-ask-wyr" class="modal-backdrop hidden">
+  <div class="modal modal-wide">
+    <h2>Would You Rather</h2>
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-tab="suggested">Suggested</button>
+      <button class="modal-tab" data-tab="custom">Your own</button>
+    </div>
+    <div id="wyr-suggested-tab" class="modal-tab-panel">
+      <p class="preview-label">Preview</p>
+      <p id="wyr-preview-text" class="preview-text">Tap shuffle for a pair.</p>
+      <button id="btn-wyr-shuffle" class="btn btn-ghost btn-sm">🔀 Shuffle</button>
+    </div>
+    <div id="wyr-custom-tab" class="modal-tab-panel hidden">
+      <input id="wyr-custom-a" class="input" maxlength="60" placeholder="Option A" />
+      <div class="or-divider">or</div>
+      <input id="wyr-custom-b" class="input" maxlength="60" placeholder="Option B" />
+    </div>
+    <div class="modal-actions">
+      <button id="btn-wyr-cancel" class="btn btn-text">Cancel</button>
+      <button id="btn-wyr-send" class="btn btn-primary">Ask the room</button>
     </div>
   </div>
 </div>
@@ -313,7 +403,8 @@
     <div id="recap-leaderboard" class="recap-leaderboard"></div>
 
     <div class="recap-actions">
-      <button id="btn-recap-replay" class="btn btn-primary btn-lg">Play again</button>
+      <button id="btn-recap-rematch" class="btn btn-primary btn-lg">Rematch</button>
+      <button id="btn-recap-replay" class="btn btn-secondary btn-lg">Change game</button>
       <button id="btn-recap-home" class="btn btn-ghost btn-lg">Leave room</button>
     </div>
   </div>
