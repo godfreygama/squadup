@@ -183,15 +183,26 @@
       showView("view-squad");
     } else if (room.phase === "duo" && !document.getElementById("view-duo").classList.contains("active")) {
       showView("view-duo");
-    } else if (room.phase === "lobby" && (document.getElementById("view-squad").classList.contains("active") || document.getElementById("view-duo").classList.contains("active"))) {
+    } else if (room.phase === "casual" && !document.getElementById("view-casual").classList.contains("active")) {
+      showView("view-casual");
+      renderPlayerGrid(room.players, "casual-player-grid");
+      if (room.casualTopic) $("casual-topic-text").textContent = room.casualTopic;
+    } else if (room.phase === "lobby" && (document.getElementById("view-squad").classList.contains("active") || document.getElementById("view-duo").classList.contains("active") || document.getElementById("view-casual").classList.contains("active"))) {
       resetSquadUI();
       resetDuoUI();
       showView("view-lobby");
     }
+
+    if (document.getElementById("view-casual").classList.contains("active")) {
+      renderPlayerGrid(room.players, "casual-player-grid");
+    }
+
+    renderVoiceParticipants(room.voiceParticipants || []);
   }
 
-  function renderPlayerGrid(players) {
-    const grid = $("player-grid");
+  function renderPlayerGrid(players, targetId) {
+    const grid = $(targetId || "player-grid");
+    if (!grid) return;
     grid.innerHTML = "";
     players.forEach(p => {
       const card = document.createElement("div");
@@ -306,6 +317,11 @@
   $("btn-leave").addEventListener("click", () => { if (confirm("Leave this room?")) leaveRoom(); });
   $("btn-leave-squad").addEventListener("click", () => { if (isHost()) socket.emit("mode:back-to-lobby"); else if (confirm("Leave this room?")) leaveRoom(); });
   $("btn-leave-duo").addEventListener("click", () => { if (isHost()) socket.emit("mode:back-to-lobby"); else if (confirm("Leave this room?")) leaveRoom(); });
+  $("btn-leave-casual").addEventListener("click", () => { if (isHost()) socket.emit("mode:back-to-lobby"); else if (confirm("Leave this room?")) leaveRoom(); });
+
+  // ---------------- CASUAL TALKS ----------------
+  $("btn-casual-shuffle").addEventListener("click", () => socket.emit("casual:shuffle-topic"));
+  socket.on("casual:topic", ({ text }) => { $("casual-topic-text").textContent = text; });
 
   // ---------------- mode selection ----------------
   document.querySelectorAll(".mode-card").forEach(card => {
@@ -1063,6 +1079,227 @@
   $("btn-recap-replay").addEventListener("click", () => { socket.emit("session:replay"); });
   socket.on("room:state", room => { if (document.getElementById("view-recap").classList.contains("active") && room.phase === "lobby") { renderRoom(room); showView("view-lobby"); } });
   $("btn-recap-home").addEventListener("click", leaveRoom);
+
+  // ---------------- VOICE CHAT (WebRTC, mesh topology) ----------------
+  // Signaling rides the existing Socket.IO connection; audio itself flows
+  // directly between browsers. Uses free public STUN only — no TURN relay,
+  // so some players on restrictive networks may not be able to connect to
+  // others. That's a known, accepted limitation, not an oversight.
+  const RTC_SUPPORTED = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection);
+  const RTC_CONFIG = {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" }
+    ]
+  };
+
+  const Voice = {
+    inCall: false,
+    muted: false,
+    localStream: null,
+    localAnalyser: null,
+    peers: new Map(),          // token -> RTCPeerConnection
+    audioEls: new Map(),       // token -> <audio>
+    peerState: new Map(),      // token -> 'connecting' | 'connected' | 'failed'
+    remoteAnalysers: new Map(),// token -> detector handle
+    speaking: new Set()
+  };
+
+  function voiceButtons() {
+    return [$("btn-voice-toggle-squad"), $("btn-voice-toggle-duo"), $("btn-voice-toggle-casual")].filter(Boolean);
+  }
+
+  if (!RTC_SUPPORTED) {
+    voiceButtons().forEach(btn => { btn.disabled = true; btn.title = "Voice chat isn't supported in this browser."; });
+  } else {
+    voiceButtons().forEach(btn => btn.addEventListener("click", joinVoice));
+  }
+
+  function makeSpeakingDetector(stream, onChange) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return { stop() {} };
+    const ctx = new Ctx();
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    let raf, wasSpeaking = false;
+    function tick() {
+      analyser.getByteFrequencyData(data);
+      const avg = data.reduce((a, b) => a + b, 0) / data.length;
+      const isSpeaking = avg > 12; // loose presence threshold, not audio processing
+      if (isSpeaking !== wasSpeaking) { wasSpeaking = isSpeaking; onChange(isSpeaking); }
+      raf = requestAnimationFrame(tick);
+    }
+    tick();
+    return { stop() { cancelAnimationFrame(raf); source.disconnect(); ctx.close().catch(() => {}); } };
+  }
+
+  function setSpeaking(token, isSpeaking) {
+    const was = Voice.speaking.has(token);
+    if (was === isSpeaking) return;
+    if (isSpeaking) Voice.speaking.add(token); else Voice.speaking.delete(token);
+    renderVoiceParticipants(S.room ? S.room.voiceParticipants || [] : []);
+  }
+
+  function createPeerConnection(token, isInitiator) {
+    if (Voice.peers.has(token)) return Voice.peers.get(token);
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+    Voice.peers.set(token, pc);
+    Voice.peerState.set(token, "connecting");
+
+    if (Voice.localStream) {
+      Voice.localStream.getTracks().forEach(track => pc.addTrack(track, Voice.localStream));
+    }
+
+    pc.onicecandidate = e => {
+      if (e.candidate) socket.emit("voice:signal", { toToken: token, signal: { type: "ice-candidate", candidate: e.candidate } });
+    };
+
+    pc.ontrack = e => {
+      let audioEl = Voice.audioEls.get(token);
+      if (!audioEl) {
+        audioEl = document.createElement("audio");
+        audioEl.autoplay = true;
+        audioEl.playsInline = true;
+        $("voice-audio-container").appendChild(audioEl);
+        Voice.audioEls.set(token, audioEl);
+      }
+      audioEl.srcObject = e.streams[0];
+      const detector = makeSpeakingDetector(e.streams[0], isSpeaking => setSpeaking(token, isSpeaking));
+      Voice.remoteAnalysers.set(token, detector);
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "connected") Voice.peerState.set(token, "connected");
+      else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") Voice.peerState.set(token, "failed");
+      renderVoiceParticipants(S.room ? S.room.voiceParticipants || [] : []);
+    };
+
+    if (isInitiator) {
+      pc.createOffer()
+        .then(offer => pc.setLocalDescription(offer))
+        .then(() => socket.emit("voice:signal", { toToken: token, signal: { type: "offer", sdp: pc.localDescription.sdp } }))
+        .catch(() => Voice.peerState.set(token, "failed"));
+    }
+    return pc;
+  }
+
+  function closePeer(token) {
+    const pc = Voice.peers.get(token);
+    if (pc) { pc.close(); Voice.peers.delete(token); }
+    const audioEl = Voice.audioEls.get(token);
+    if (audioEl) { audioEl.srcObject = null; audioEl.remove(); Voice.audioEls.delete(token); }
+    const detector = Voice.remoteAnalysers.get(token);
+    if (detector) { detector.stop(); Voice.remoteAnalysers.delete(token); }
+    Voice.peerState.delete(token);
+    Voice.speaking.delete(token);
+  }
+
+  async function joinVoice() {
+    if (!RTC_SUPPORTED || Voice.inCall) return;
+    try {
+      Voice.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      toast("Couldn't access your microphone — check your browser's permission settings.");
+      return;
+    }
+    const res = await new Promise(r => socket.emit("voice:join", {}, r));
+    if (!res || !res.ok) { toast("Couldn't join voice."); Voice.localStream.getTracks().forEach(t => t.stop()); Voice.localStream = null; return; }
+    Voice.inCall = true;
+    Voice.localAnalyser = makeSpeakingDetector(Voice.localStream, isSpeaking => setSpeaking(myToken(), isSpeaking && !Voice.muted));
+    res.existingParticipants.forEach(token => createPeerConnection(token, true));
+    updateVoiceButtons();
+    toast("Voice chat joined. On some networks, a call to specific people may not connect — that's a known limitation, not a bug.");
+  }
+
+  function leaveVoice() {
+    if (!Voice.inCall) return;
+    socket.emit("voice:leave");
+    Voice.peers.forEach((_, token) => closePeer(token));
+    if (Voice.localStream) { Voice.localStream.getTracks().forEach(t => t.stop()); Voice.localStream = null; }
+    if (Voice.localAnalyser) { Voice.localAnalyser.stop(); Voice.localAnalyser = null; }
+    Voice.speaking.delete(myToken());
+    Voice.inCall = false;
+    Voice.muted = false;
+    updateVoiceButtons();
+    renderVoiceParticipants(S.room ? S.room.voiceParticipants || [] : []);
+  }
+
+  function toggleMute() {
+    if (!Voice.inCall || !Voice.localStream) return;
+    Voice.muted = !Voice.muted;
+    Voice.localStream.getAudioTracks().forEach(t => { t.enabled = !Voice.muted; });
+    if (Voice.muted) setSpeaking(myToken(), false);
+    updateVoiceButtons();
+    renderVoiceParticipants(S.room ? S.room.voiceParticipants || [] : []);
+  }
+
+  function updateVoiceButtons() {
+    voiceButtons().forEach(btn => btn.classList.toggle("hidden", Voice.inCall));
+  }
+
+  function renderVoiceParticipants(tokens) {
+    ["voice-participants-squad", "voice-participants-duo", "voice-participants-casual"].forEach(id => {
+      const el = $(id);
+      if (!el) return;
+      if (!tokens.length && !Voice.inCall) { el.innerHTML = ""; return; }
+      const players = (S.room && S.room.players) || [];
+      let html = tokens.map(token => {
+        const p = players.find(pl => pl.token === token);
+        if (!p) return "";
+        const isMe = token === myToken();
+        const state = Voice.peerState.get(token);
+        const cls = ["voice-avatar"];
+        if (Voice.speaking.has(token)) cls.push("speaking");
+        if (!isMe && state === "connecting") cls.push("connecting");
+        if (!isMe && state === "failed") cls.push("connect-failed");
+        return `<div class="${cls.join(" ")}" style="background:${p.color}33;" title="${escapeHtml(p.nickname)}${isMe ? " (you)" : ""}${state === "failed" ? " — couldn't connect" : ""}">${p.avatar}</div>`;
+      }).join("");
+      if (Voice.inCall) {
+        html += `<button class="btn btn-icon btn-sm" data-voice-action="mute">${Voice.muted ? "🔇" : "🎙️"}</button>`;
+        html += `<button class="btn btn-icon btn-sm btn-danger" data-voice-action="leave">📴</button>`;
+      }
+      el.innerHTML = html;
+      const muteBtn = el.querySelector('[data-voice-action="mute"]');
+      const leaveBtn = el.querySelector('[data-voice-action="leave"]');
+      if (muteBtn) muteBtn.onclick = toggleMute;
+      if (leaveBtn) leaveBtn.onclick = leaveVoice;
+    });
+  }
+
+  socket.on("voice:participant-joined", ({ token }) => {
+    if (!Voice.inCall || token === myToken()) return;
+    createPeerConnection(token, true);
+    renderVoiceParticipants(S.room ? S.room.voiceParticipants || [] : []);
+  });
+
+  socket.on("voice:participant-left", ({ token }) => {
+    closePeer(token);
+    renderVoiceParticipants(S.room ? S.room.voiceParticipants || [] : []);
+  });
+
+  socket.on("voice:signal", async ({ fromToken, signal }) => {
+    if (!Voice.inCall) return;
+    let pc = Voice.peers.get(fromToken);
+    try {
+      if (signal.type === "offer") {
+        if (!pc) pc = createPeerConnection(fromToken, false);
+        await pc.setRemoteDescription({ type: "offer", sdp: signal.sdp });
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit("voice:signal", { toToken: fromToken, signal: { type: "answer", sdp: pc.localDescription.sdp } });
+      } else if (signal.type === "answer") {
+        if (pc) await pc.setRemoteDescription({ type: "answer", sdp: signal.sdp });
+      } else if (signal.type === "ice-candidate") {
+        if (pc && signal.candidate) await pc.addIceCandidate(signal.candidate);
+      }
+    } catch (err) {
+      // A candidate arriving before its remote description, or a stale signal
+      // after a peer already disconnected, is normal in WebRTC — not fatal.
+    }
+  });
 
   // ---------------- connection resilience ----------------
   // A raw socket error means nothing to a non-technical player mid-game — show a

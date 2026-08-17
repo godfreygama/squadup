@@ -19,6 +19,7 @@ const {
   getNeverHaveIEverPrompt,
   getWouldYouRatherPrompt
 } = require("./lib/activities");
+const { getCasualTopic } = require("./data/casualTopics");
 const analytics = require("./lib/analytics");
 
 const app = express();
@@ -89,6 +90,8 @@ function publicRoom(room) {
     mode: room.mode,
     phase: room.phase,
     judgeToken: room.activity.judgeToken,
+    casualTopic: room.casualTopic || null,
+    voiceParticipants: [...(room.voiceParticipants || [])],
     players: [...room.players.values()]
       .filter(p => p.connected || Date.now() - (p.disconnectedAt || 0) < REMOVAL_GRACE_MS)
       .map(p => ({
@@ -492,7 +495,8 @@ io.on("connection", socket => {
       const room = {
         code, name: makeName(), createdAt: Date.now(),
         players: new Map(), mode: null, phase: "lobby",
-        activity: freshActivityState(),
+        activity: freshActivityState(), casualTopic: null,
+        voiceParticipants: new Set(),
         history: [], reports: []
       };
       rooms.set(code, room);
@@ -597,7 +601,11 @@ io.on("connection", socket => {
     room.mode = mode;
     room.phase = mode;
     room.activity = freshActivityState();
+    if (mode === "casual") {
+      room.casualTopic = getCasualTopic(null);
+    }
     broadcastLobby(room);
+    if (mode === "casual") io.to(room.code).emit("casual:topic", { text: room.casualTopic });
     analytics.track("mode_started", room.code, { mode, playerCount: room.players.size });
   });
 
@@ -610,7 +618,46 @@ io.on("connection", socket => {
     room.mode = null;
     room.phase = "lobby";
     room.activity = freshActivityState();
+    room.casualTopic = null;
     broadcastLobby(room);
+  });
+
+  // ---------- VOICE CHAT: WebRTC signaling relay only — no audio touches the server ----------
+  socket.on("voice:join", (_, ack) => {
+    const room = rooms.get(currentRoomCode);
+    if (!room) { ack && ack({ ok: false }); return; }
+    const existing = [...room.voiceParticipants].filter(t => t !== currentToken);
+    room.voiceParticipants.add(currentToken);
+    // Existing participants each become the initiator toward the newcomer —
+    // this avoids both sides racing to create an offer at once (SDP "glare").
+    socket.to(room.code).emit("voice:participant-joined", { token: currentToken });
+    broadcastLobby(room);
+    analytics.track("voice_joined", room.code, { participantCount: room.voiceParticipants.size });
+    ack && ack({ ok: true, existingParticipants: existing });
+  });
+
+  socket.on("voice:leave", () => {
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+    room.voiceParticipants.delete(currentToken);
+    io.to(room.code).emit("voice:participant-left", { token: currentToken });
+    broadcastLobby(room);
+  });
+
+  socket.on("voice:signal", ({ toToken, signal }) => {
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+    const target = room.players.get(toToken);
+    if (!target || !target.socketId) return;
+    io.to(target.socketId).emit("voice:signal", { fromToken: currentToken, signal });
+  });
+
+  // ---------- CASUAL TALKS: shuffle the conversation starter (anyone can) ----------
+  socket.on("casual:shuffle-topic", () => {
+    const room = rooms.get(currentRoomCode);
+    if (!room || room.mode !== "casual") return;
+    room.casualTopic = getCasualTopic(room.casualTopic);
+    io.to(room.code).emit("casual:topic", { text: room.casualTopic });
   });
 
   // ---------- category lists (unchanged — still power vote-person / match / open-question) ----------
@@ -766,6 +813,10 @@ io.on("connection", socket => {
     const target = room.players.get(targetToken);
     if (!target) return;
     room.players.delete(targetToken);
+    if (room.voiceParticipants && room.voiceParticipants.has(targetToken)) {
+      room.voiceParticipants.delete(targetToken);
+      io.to(room.code).emit("voice:participant-left", { token: targetToken });
+    }
     if (target.socketId) io.to(target.socketId).emit("safety:kicked");
     broadcastLobby(room);
   });
@@ -804,6 +855,15 @@ function handleLeave(socket, code, token, explicit) {
   if (!room || !token) return;
   const player = room.players.get(token);
   if (!player) return;
+
+  // Voice is a live WebRTC connection independent of the reconnection grace
+  // window below — the instant a socket drops, that peer's audio is already
+  // gone for everyone else, so clean it up immediately either way rather than
+  // leaving other clients holding dead peer connections for up to 2 minutes.
+  if (room.voiceParticipants && room.voiceParticipants.has(token)) {
+    room.voiceParticipants.delete(token);
+    io.to(room.code).emit("voice:participant-left", { token });
+  }
 
   if (explicit) {
     room.players.delete(token);

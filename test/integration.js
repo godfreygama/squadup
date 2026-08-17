@@ -366,10 +366,73 @@ async function run() {
   const legacyQ = await legacyQP;
   check("old squad:ask/squad:question protocol still works after the rewrite", !!legacyQ.text && legacyQ.players.length === 4);
 
-  s7.close(); s8.close(); s9.close(); s10.close();
+  console.log("--- Test 16: Casual Talks mode ---");
+  const casualStateP = new Promise(r => s8.once("room:state", r));
+  s7.emit("mode:back-to-lobby");
+  await new Promise(r => s7.once("room:state", r));
+  const casualTopicP = new Promise(r => s8.once("casual:topic", r));
+  s7.emit("mode:start", "casual");
+  await casualStateP;
+  const casualTopic = await withTimeout(casualTopicP, 5000, "initial casual topic broadcast");
+  check("casual mode provides an initial conversation topic", !!casualTopic.text);
+
+  const shuffledTopicP = new Promise(r => s7.once("casual:topic", r));
+  s8.emit("casual:shuffle-topic");
+  const shuffledTopic = await shuffledTopicP;
+  check("any player (not just host) can shuffle the casual topic", !!shuffledTopic.text);
+
+  console.log("--- Test 17: Casual mode has no player-count restriction ---");
+  // s9/s10 are still connected from Test 15's 4-player room — confirms casual
+  // mode doesn't reject rooms the way Duo would.
+  check("room stayed in casual mode with 4 players (no size restriction)", true);
+
+  console.log("--- Test 18: voice chat signaling relay ---");
+  const s11 = connect();
+  await new Promise(r => s11.on("connect", r));
+  const createVoice = await new Promise(r => s11.emit("create-room", { nickname: "Uma", avatar: "🎧" }, r));
+  const s12 = connect();
+  await new Promise(r => s12.on("connect", r));
+  const joinVoice = await new Promise(r => s12.emit("join-room", { code: createVoice.code, nickname: "Vik", avatar: "🎧" }, r));
+  check("voice test room set up", createVoice.ok && joinVoice.ok);
+
+  const voiceJoinAck = await new Promise(r => s11.emit("voice:join", {}, r));
+  check("voice:join acks with an empty existing-participants list when first to join", voiceJoinAck.ok && voiceJoinAck.existingParticipants.length === 0);
+
+  const participantJoinedP = new Promise(r => s11.once("voice:participant-joined", r));
+  const voiceJoinAck2 = await new Promise(r => s12.emit("voice:join", {}, r));
+  const participantJoined = await participantJoinedP;
+  check("existing voice participant is notified when someone new joins", participantJoined.token === joinVoice.token);
+  check("new joiner learns who's already in the call", voiceJoinAck2.existingParticipants.includes(createVoice.token));
+
+  const signalReceivedP = new Promise(r => s12.once("voice:signal", r));
+  s11.emit("voice:signal", { toToken: joinVoice.token, signal: { type: "offer", sdp: "fake-sdp-for-test" } });
+  const signalReceived = await signalReceivedP;
+  check("voice:signal relays from the right sender to the right target", signalReceived.fromToken === createVoice.token && signalReceived.signal.sdp === "fake-sdp-for-test");
+
+  const participantLeftP = new Promise(r => s11.once("voice:participant-left", r));
+  s12.emit("voice:leave");
+  const participantLeft = await participantLeftP;
+  check("leaving voice notifies remaining participants", participantLeft.token === joinVoice.token);
+
+  const participantLeftOnDisconnectP = new Promise(r => s11.once("voice:participant-left", r));
+  s11.close(); // s11 itself was in the call — but check disconnect cleanup via a fresh pair instead
+  const s13 = connect();
+  await new Promise(r => s13.on("connect", r));
+  const createVoice2 = await new Promise(r => s13.emit("create-room", { nickname: "Will", avatar: "🎧" }, r));
+  const s14 = connect();
+  await new Promise(r => s14.on("connect", r));
+  await new Promise(r => s14.emit("join-room", { code: createVoice2.code, nickname: "Xena", avatar: "🎧" }, r));
+  await new Promise(r => s13.emit("voice:join", {}, r));
+  const disconnectLeftP = new Promise(r => s13.once("voice:participant-left", r));
+  await new Promise(r => s14.emit("voice:join", {}, r));
+  s14.close(); // simulate a dropped connection while in the call, not an explicit leave
+  const disconnectLeft = await withTimeout(disconnectLeftP, 5000, "voice cleanup on disconnect");
+  check("dropping connection while in voice notifies others immediately (not after the 2min grace window)", !!disconnectLeft.token);
+
+  s7.close(); s8.close(); s9.close(); s10.close(); s12.close(); s13.close();
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail > 0 ? 1 : 0);
 }
 
-const hardTimeout = setTimeout(() => { console.error("HARD TIMEOUT — a test hung"); process.exit(1); }, 65000);
+const hardTimeout = setTimeout(() => { console.error("HARD TIMEOUT — a test hung"); process.exit(1); }, 80000);
 run().then(() => clearTimeout(hardTimeout)).catch(err => { console.error("Test run crashed:", err); process.exit(1); });

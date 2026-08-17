@@ -18,6 +18,7 @@
 
 <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 <div id="reaction-layer" class="reaction-layer"></div>
+<div id="voice-audio-container" style="display:none;" aria-hidden="true"></div>
 <div id="reconnect-banner" class="reconnect-banner hidden" role="status" aria-live="assertive">
   <span id="reconnect-banner-title">Connection interrupted</span>
   <span id="reconnect-banner-sub" class="reconnect-banner-sub">Trying to reconnect…</span>
@@ -27,6 +28,7 @@
 <!-- ================= LANDING ================= -->
 <section id="view-landing" class="view view-landing active">
   <div class="landing-glow"></div>
+  <div class="landing-glow-2"></div>
   <div class="landing-wrap">
     <div class="brand">
       <svg class="brand-mark" width="30" height="30" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
@@ -112,6 +114,11 @@
         <span class="mode-card-desc">A two-person space. No labels — just the two of you.</span>
         <span id="duo-hint" class="mode-card-hint">Needs exactly 2 players</span>
       </button>
+      <button class="mode-card mode-card-casual" data-mode="casual">
+        <span class="mode-card-emoji">☕</span>
+        <span class="mode-card-title">Casual Talks</span>
+        <span class="mode-card-desc">No games, no scoring — just a space to hang out and talk.</span>
+      </button>
     </div>
   </div>
 </section>
@@ -125,10 +132,12 @@
     </div>
     <div class="game-topbar-right">
       <span id="squad-stars" class="stars-readout">⭐ 0</span>
+      <button id="btn-voice-toggle-squad" class="btn btn-secondary btn-sm voice-toggle-btn">🎙️</button>
       <button id="squad-host-controls-btn" class="btn btn-icon btn-sm hidden" title="Host controls">⚙️</button>
       <button id="btn-leave-squad" class="btn btn-icon btn-sm btn-danger" title="Leave">✕</button>
     </div>
   </header>
+  <div id="voice-participants-squad" class="voice-participants"></div>
 
   <div class="game-wrap">
     <div id="squad-idle" class="idle-panel idle-panel-activities">
@@ -194,10 +203,12 @@
     </div>
     <div class="game-topbar-right">
       <span id="duo-stars" class="stars-readout">⭐ 0</span>
+      <button id="btn-voice-toggle-duo" class="btn btn-secondary btn-sm voice-toggle-btn">🎙️</button>
       <button id="squad-host-controls-btn-duo" class="btn btn-icon btn-sm hidden" title="Host controls">⚙️</button>
       <button id="btn-leave-duo" class="btn btn-icon btn-sm btn-danger" title="Leave">✕</button>
     </div>
   </header>
+  <div id="voice-participants-duo" class="voice-participants"></div>
 
   <div class="game-wrap">
     <div id="duo-idle" class="idle-panel">
@@ -239,6 +250,34 @@
   </div>
 
   <div class="reaction-bar" id="duo-reactions"></div>
+</section>
+
+<!-- ================= CASUAL TALKS ================= -->
+<section id="view-casual" class="view view-game">
+  <header class="game-topbar">
+    <div class="game-topbar-left">
+      <span class="game-tag">Casual Talks</span>
+    </div>
+    <div class="game-topbar-right">
+      <button id="btn-voice-toggle-casual" class="btn btn-secondary btn-sm voice-toggle-btn">🎙️ Join voice</button>
+      <button id="btn-leave-casual" class="btn btn-icon btn-sm btn-danger" title="Leave">✕</button>
+    </div>
+  </header>
+
+  <div class="game-wrap">
+    <div class="casual-topic-card">
+      <p class="preview-label">Talk about</p>
+      <h2 id="casual-topic-text" class="question-text">Loading a topic…</h2>
+      <button id="btn-casual-shuffle" class="btn btn-ghost btn-sm">🔀 New topic</button>
+    </div>
+
+    <h2 class="section-label">Who's here</h2>
+    <div id="casual-player-grid" class="player-grid"></div>
+
+    <div id="voice-participants-casual" class="voice-participants"></div>
+  </div>
+
+  <div class="reaction-bar" id="casual-reactions"></div>
 </section>
 
 <!-- ================= ASK QUESTION MODAL (SQUAD) ================= -->

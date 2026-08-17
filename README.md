@@ -13,46 +13,36 @@ group and two-person games together. Built from the project proposal's Section 2
 
 - **Landing → create/join room** with a shareable 5-character code and link
 - **Live lobby** with real-time presence (join/leave, host badge, online dots)
-- **Squad — six activities on one shared engine**: Who Knows Who?, Truth,
-  Hot Seat (the seat persists across several rounds before rotating), Dare
-  (a rotating Judge — never the same person as the performer — verifies
-  pass/fail), Never Have I Ever, and Would You Rather. Adding a new activity
-  that fits an existing response shape (poll or freeAnswer) is a catalog
-  entry in `lib/activities.js`, not new server code.
-- **Duo** (only unlocks with exactly 2 people in the room, and deliberately
-  never labels your relationship) — This or That / Match with a live match
-  score, and Open Question, both with custom-question support. No countdown
-  pressure — reveals happen once both people have answered.
-- **Adaptive Squad progression** — once most of the room has responded, a
-  short grace window plays out instead of waiting for the slowest person or
-  the full timer
-- **Reconnection that resumes mid-round** — a dropped connection resends the
-  live question (and your prior response, if you'd already submitted one)
-  instead of landing you on a stale screen
-- **Reactions**, a typing indicator, a persistent "reconnecting…" banner, Stars
-  ⭐ with a live readout and animation
-- **Basic safety**: leave room, report player (notifies host), host can remove
-  a player or skip a round
-- **Session recap**: leaderboard, winner, most-voted highlight, most-active
-  asker, duo match score, **Rematch** (same mode, jump straight back in) vs
-  **Change game** (back to the lobby)
+- **Live voice chat** — a real WebRTC mesh call, works across Squad, Duo, and
+  Casual Talks. Signaling rides the existing Socket.IO connection; audio flows
+  directly between browsers using free public STUN servers. **Known
+  limitation**: there's no TURN relay server, so some players on restrictive
+  networks (school/office wifi, certain mobile carriers) may not be able to
+  connect to specific other players. This is a real infrastructure gap, not a
+  bug — a TURN server is a separate piece of paid infrastructure.
+- **Casual Talks** — a third room mode alongside Squad/Duo with no scoring and
+  no rounds. Just presence, reactions, and a shuffleable conversation-starter
+  anyone can refresh.
+- **Squad → "Who Knows Who?"** — vote for a person in the room, live results,
+  points, suggested question categories (funny / savage / deep / random /
+  hypothetical / friendship) + fully custom questions
+- **Duo** (only unlocks with exactly 2 people in the room, and deliberately never
+  labels your relationship) — **This or That / Match** with a live match score,
+  and **Open Questions** (How Well Do You Know Me?, First Impression, Memory Test,
+  Crush) with custom-question support
+- **Reactions**, a typing indicator, and a 30–45s countdown per question
+- **Basic safety**: leave room, report player (notifies host), host can remove a
+  player or skip a question
+- **Session recap**: leaderboard, most-voted highlight, duo match score, replay
+- **Reconnection handling**: refreshing the page or a dropped mobile connection
+  won't kick you out — you rejoin with your score intact for 2 minutes
 
 ## What's intentionally NOT in this build
 
-Battle mode, room history across sessions, achievements, themes, accounts, and
-monetization are all Phase 2/3 in the original proposal — building all of it
-wasn't realistic for a first pass.
-
-**Two catalog entries exist as data but aren't implemented**: `two-truths-a-lie`
-and `guess-who` both need an `answerKey: 'target'` comparison (score a guesser
-against the target's own submitted answer) that the round resolver doesn't
-implement yet. They're deliberately left out of the active catalog rather than
-shipped as buttons that silently do nothing.
-
-The old Squad/Duo events (`squad:ask`, `duo:ask`, etc.) still work exactly as
-before — they're now thin adapters over the same engine, proven by an explicit
-test that plays a full legacy round after a batch of new-activity rounds have
-already run in the same room.
+Battle mode, Ask the Room as a separate mode, room history across sessions,
+achievements, themes, accounts, and monetization are all Phase 2/3 in the original
+proposal — building all of it wasn't realistic for a first pass. This version is
+scoped to prove whether people actually want to play.
 
 **Room data is in-memory only.** Rooms disappear when the server restarts
 (including the free-tier "spin down after inactivity" behavior described below).
